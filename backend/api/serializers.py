@@ -93,3 +93,10 @@ class WorkingIntervalCommentSerializer(serializers.ModelSerializer):
                             'finished_at',
                             'sensor',
                             'status']
+
+
+class SensorSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Sensor
+        fields = '__all__'

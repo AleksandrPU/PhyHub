@@ -1,6 +1,8 @@
 from django.urls import path
 
-from .views import (SensorReadingsCreateView, WorkingIntervalViewSet)
+from .views import (
+    SensorReadingsCreateView, SensorViewSet, WorkingIntervalViewSet,
+    list_sensor_readings)
 
 urlpatterns = [
     path('create_readings/',
@@ -17,4 +19,12 @@ urlpatterns = [
              'patch': 'partial_update',
          }),
          name='working_interval'),
+
+    path('sensors/',
+         SensorViewSet.as_view({'get': 'list'}),
+         name='sensors_list'),
+
+    path('list_readings/',
+         list_sensor_readings,
+         name='list_sensor_readings'),
 ]
