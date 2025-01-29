@@ -1,0 +1,57 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:15.3-alpine
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    env_file:
+      - .env
+    ports:
+      - "54321:5432"
+
+#  migration:
+#    image: kraleksey/phyhub:latest
+#    command: python manage.py migrate --noinput
+#    volumes:
+#      - static_volume:/app/static/
+#      - media_volume:/app/media/
+#    env_file:
+#      - .env
+#    depends_on:
+#      - db
+
+  web:
+    build:
+      context: ../backend
+      dockerfile: DevDockerfile
+    restart: unless-stopped
+    volumes:
+      - static_volume:/app/static/
+      - media_volume:/app/media/
+    env_file:
+      - .env
+#    depends_on:
+#      - migration
+    command: >
+      sh -c "python manage.py collectstatic --noinput &&
+      python manage.py migrate &&
+      gunicorn PhyHub.wsgi:application --bind 0.0.0.0:8000"
+
+  nginx:
+    image: nginx:1.25.1
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      - static_volume:/var/html/static/
+      - media_volume:/var/html/media/
+    depends_on:
+      - web
+
+volumes:
+  postgres_data:
+  static_volume:
+  media_volume:
+
