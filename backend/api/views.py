@@ -105,6 +105,13 @@ def list_sensor_readings(request):
     assert (queryset,
             f'Данные за период с {from_datetime} по {to_datetime} отсутствуют')
 
+    sensors = (
+        Sensor.objects
+        .filter(pk__in=work_centers)
+        .values('pk', 'slug', 'name')
+        .in_bulk(field_name='pk')
+    )
+
     df = pd.DataFrame.from_records(
         queryset, index=['date_to_minute', 'sensor_id'])
     date_range = pd.MultiIndex.from_product(
@@ -130,10 +137,25 @@ def list_sensor_readings(request):
         .mean())
 
     df_resample = df_resample.swaplevel()
-    result = df_resample['avg_value'].unstack().to_dict(orient='index')
+    # result = df_resample['avg_value'].unstack().to_dict(orient='index')
+    #
+    # final = {
+    #     key.to_pydatetime().strftime('%Y-%m-%dT%H:%M:%S.%f'): value
+    #     for key, value in result.items()}
 
-    final = {
-        key.to_pydatetime().strftime('%Y-%m-%dT%H:%M:%S.%f'): value
-        for key, value in result.items()}
+    # result = []
+    # for timestamp, group in df_resample.groupby(level='date_to_minute'):
+    #     values = [{'sensor_id': sensor_id, 'value': float(row['avg_value'])} for sensor_id, row in
+    #               group.iterrows()]
+    #     result.append({'date': int(timestamp.timestamp()), 'values': values})
 
-    return JsonResponse(final)
+    result = []
+    for timestamp in df_resample.index.levels[0]:
+        values = []
+        for sensor_id in df_resample.loc[timestamp].index:
+            # values.append({'sensor_id': sensor_id,
+            values.append({'sensor_id': Sensor.objects.get,
+                           'value': float(df_resample.loc[timestamp].loc[sensor_id, 'avg_value'])})
+        result.append({'date': int(timestamp.timestamp()), 'values': values})
+
+    return JsonResponse(result)
