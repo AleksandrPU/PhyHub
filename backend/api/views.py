@@ -1,11 +1,14 @@
+import time
 from datetime import timedelta, datetime
 
+import numpy as np
 import pandas as pd
 from django.db.models import Avg, DateTimeField
 from django.db.models.functions import Trunc
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.timezone import now
+from rest_framework.exceptions import status
 
 from rest_framework.generics import CreateAPIView, get_object_or_404
 from rest_framework.mixins import (ListModelMixin, RetrieveModelMixin,
@@ -50,112 +53,153 @@ class SensorViewSet(ListModelMixin, GenericViewSet):
     serializer_class = SensorSerializer
 
 
+def rms(x):
+    """Вычисление среднего квадратичного значения."""
+    return np.sqrt(np.mean(np.square(x)))
+
+
 def list_sensor_readings(request):
+    """Вывод данных производительности по рабочим центрам.
+    Только GET запросы.
+
+    Query параметры:
+        work_center: список id рабочих центров через запятую
+        interval: интервал усреднения в минутах (по умолчанию 60 минут)
+        from_datetime: начало периода в формате YYYY-MM-DDTHH:MM
+        to_datetime: конец периода в формате YYYY-MM-DDTHH:MM
+        zero: включать в ответ нулевые значения? (по умолчанию True)
+    """
     if request.method != 'GET':
-        return JsonResponse({'message': 'Method not allowed'}, status=405)
+        return JsonResponse({'message': 'Method not allowed'},
+                            status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
     work_centers = request.GET.get('work_center')
-
-    assert work_centers, 'Параметр work_center не может быть пустым'
+    if not work_centers:
+        return JsonResponse(
+            {'work_center': 'Не заданы рабочие центры'},
+            status=status.HTTP_400_BAD_REQUEST)
 
     work_centers = [int(i) for i in request.GET.get('work_center').split(',')]
 
+    # интервал усреднения по умолчанию 60 минут
     interval = int(request.GET.get('interval', 60) or 60)
 
+    # если не задана дата окончания периода, берем текущую дату
     to_datetime = request.GET.get('to_datetime', now()) or now()
     if isinstance(to_datetime, str):
         to_datetime = datetime.strptime(
             to_datetime,
-            '%Y-%m-%d %H:%M'
+            '%Y-%m-%dT%H:%M'
         ).replace(tzinfo=timezone.get_current_timezone())
 
+    # если не задана дата начала периода, берем предыдущие сутки от to_datetime
     from_datetime = request.GET.get(
         'from_datetime',
         to_datetime - timedelta(days=1)) or (to_datetime - timedelta(days=1))
     if isinstance(from_datetime, str):
         from_datetime = datetime.strptime(
             from_datetime,
-            '%Y-%m-%d %H:%M'
+            '%Y-%m-%dT%H:%M'
         ).replace(tzinfo=timezone.get_current_timezone())
 
-    assert (to_datetime - from_datetime > timedelta(minutes=interval),
-            'Интервал больше заданного периода')
+    if to_datetime < from_datetime:
+        return JsonResponse(
+            {'to_datetime': 'Дата окончания периода меньше даты начала '
+                            'периода'},
+            status=status.HTTP_400_BAD_REQUEST)
 
+    if to_datetime - from_datetime < timedelta(minutes=interval):
+        return JsonResponse({'interval': 'Интервал больше заданного периода'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+    # если передано убираем нулевые значения
+    zero = not bool(request.GET.get('zero'))
+
+    # данные по датчикам, усредненные за 1 минуту
     queryset = (
         SensorReading.objects.filter(
-            # sensor_id__in=(1, 2, 5),
-            # sensor_id=1,
-            # measured_at__gte='2025-01-25 00:00',
-            # measured_at__lt='2025-01-26 00:00'
             sensor_id__in=work_centers,
             measured_at__gte=from_datetime,
             measured_at__lt=to_datetime
         )
         .annotate(
-            date_to_minute=Trunc(
+            timestamp=Trunc(
                 'measured_at', 'minute', output_field=DateTimeField()), )
-        .order_by('date_to_minute')
-        .values('date_to_minute')
+        .order_by('timestamp')
+        .values('timestamp')
         .annotate(
             avg_value=Avg('value'),
         )
-        .values('sensor_id', 'date_to_minute', 'avg_value')
+        .values('sensor_id', 'timestamp', 'avg_value')
     )
 
-    assert (queryset,
-            f'Данные за период с {from_datetime} по {to_datetime} отсутствуют')
+    if not queryset:
+        return JsonResponse({
+            'interval': 'Нет данных за период с '
+                        f'{from_datetime.strftime('%Y-%m-%dT%H:%M')} '
+                        f'по {to_datetime.strftime('%Y-%m-%dT%H:%M')}'},
+            status=status.HTTP_204_NO_CONTENT)
 
-    sensors = (
-        Sensor.objects
-        .filter(pk__in=work_centers)
-        .values('pk', 'slug', 'name')
-        .in_bulk(field_name='pk')
-    )
+    start = time.time()
+    # создаем датафрейм с индексами дата и id датчика
+    df = pd.DataFrame.from_records(queryset, index=['timestamp', 'sensor_id'])
 
-    df = pd.DataFrame.from_records(
-        queryset, index=['date_to_minute', 'sensor_id'])
+    # создаем мультииндекс с полным временным рядом с интервалом 1 минута
     date_range = pd.MultiIndex.from_product(
         [
             pd.date_range(
-                # start=datetime(
-                # 2025, 1, 25, 0, 0, tzinfo=timezone.get_current_timezone()),
-                # end=datetime(
-                # 2025, 1, 25, 23, 59, tzinfo=timezone.get_current_timezone()),
                 start=from_datetime,
                 end=to_datetime - timedelta(minutes=1),
                 freq='min'),
             df.index.levels[1],
         ],
-        names=['date_to_minute', 'sensor_id']
+        names=['timestamp', 'sensor_id']
     )
 
-    df_filled = df.reindex(date_range, fill_value=0)
-    df_resample = (
-        df_filled
-        .groupby(level='sensor_id')
-        .resample(f'{interval}min', level='date_to_minute')
-        .mean())
+    # переиндексируем датафрейм, заполняя недостающие данные нулями
+    df = df.reindex(date_range, fill_value=0)
 
-    df_resample = df_resample.swaplevel()
-    # result = df_resample['avg_value'].unstack().to_dict(orient='index')
-    #
-    # final = {
-    #     key.to_pydatetime().strftime('%Y-%m-%dT%H:%M:%S.%f'): value
-    #     for key, value in result.items()}
+    # усредняем датафрейм с интервалом interval
+    df = (df.groupby(level='sensor_id')
+          .resample(f'{interval}min', level='timestamp')
+          # .mean())
+          .aggregate(rms))
 
-    # result = []
-    # for timestamp, group in df_resample.groupby(level='date_to_minute'):
-    #     values = [{'sensor_id': sensor_id, 'value': float(row['avg_value'])} for sensor_id, row in
-    #               group.iterrows()]
-    #     result.append({'date': int(timestamp.timestamp()), 'values': values})
+    # меняем местами индексы
+    df = df.swaplevel()
+    print(f'time = {time.time() - start}')
 
+    sensors = (
+        Sensor.objects
+        .filter(pk__in=work_centers)
+        .in_bulk(field_name='pk')
+    )
+
+    start = time.time()
+    # если передано zero, не включаем нулевые данные в ответ
     result = []
-    for timestamp in df_resample.index.levels[0]:
-        values = []
-        for sensor_id in df_resample.loc[timestamp].index:
-            # values.append({'sensor_id': sensor_id,
-            values.append({'sensor_id': Sensor.objects.get,
-                           'value': float(df_resample.loc[timestamp].loc[sensor_id, 'avg_value'])})
-        result.append({'date': int(timestamp.timestamp()), 'values': values})
+    timestamps = df.index.levels[0]
+    for timestamp in timestamps:
+        sensor_data = df.loc[timestamp]
 
-    return JsonResponse(result)
+        valid_values = sensor_data['avg_value'].round()
+        if not (zero or not valid_values.empty):
+            continue
+
+        values = [
+            {
+                'sensor_slug': sensors[sensor_id].slug,
+                'sensor_name': sensors[sensor_id].name,
+                'value': value
+            }
+            for sensor_id, value in valid_values.items()
+            if zero or value
+        ]
+
+        if values:
+            result.append(
+                {'date': int(timestamp.timestamp()), 'values': values})
+
+    print(f'time = {time.time() - start}')
+
+    return JsonResponse(result, safe=False)
