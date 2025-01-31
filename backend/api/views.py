@@ -198,7 +198,8 @@ def list_sensor_readings(request):
 
         if values:
             result.append(
-                {'date': int(timestamp.timestamp()), 'values': values})
+                # {'date': int(timestamp.timestamp()), 'values': values})
+                {'date': timestamp, 'values': values})
 
     print(f'time = {time.time() - start}')
 
