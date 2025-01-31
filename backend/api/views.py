@@ -134,11 +134,7 @@ def list_sensor_readings(request):
     )
 
     if not queryset:
-        return JsonResponse({
-            'interval': 'Нет данных за период с '
-                        f'{from_datetime:%Y-%m-%dT%H:%M} '
-                        f'по {to_datetime:%Y-%m-%dT%H:%M}'},
-            status=status.HTTP_204_NO_CONTENT)
+        return JsonResponse({})
 
     start = time.time()
     # создаем датафрейм с индексами дата и id датчика
