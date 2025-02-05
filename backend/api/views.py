@@ -134,7 +134,7 @@ def list_sensor_readings(request):
     )
 
     if not queryset:
-        return JsonResponse([])
+        return JsonResponse([], safe=False)
 
     start = time.time()
     # создаем датафрейм с индексами дата и id датчика
