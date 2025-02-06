@@ -1,9 +1,10 @@
 import time
 from datetime import timedelta, datetime
+from json import loads, dumps
 
 import numpy as np
 import pandas as pd
-from django.db.models import Avg, DateTimeField
+from django.db.models import Avg, DateTimeField, Prefetch
 from django.db.models.functions import Trunc
 from django.http import JsonResponse
 from django.utils import timezone
@@ -18,10 +19,11 @@ from rest_framework.permissions import AllowAny
 from rest_framework.viewsets import GenericViewSet
 
 from sensors.models import Sensor, SensorReading, WorkingInterval
-from .filters import WorkingIntervalFilter
+from .filters import WorkingIntervalFilter, WorkingIntervalMachineFilter
 from .serializers import (SensorReadingListSerializer,
                           SensorSerializer,
-                          WorkingIntervalCommentSerializer)
+                          WorkingIntervalCommentSerializer,
+                          WorkingIntervalMachineSerializer)
 
 
 class SensorReadingsCreateView(CreateAPIView):
@@ -155,14 +157,16 @@ def list_sensor_readings(request):
     # переиндексируем датафрейм, заполняя недостающие данные нулями
     df = df.reindex(date_range, fill_value=0)
 
-    # усредняем датафрейм с интервалом interval
-    df = (df.groupby(level='sensor_id')
-          .resample(f'{interval}min', level='timestamp')
-          # .mean())
-          .aggregate(rms))
+    if interval != 1:
+        # усредняем датафрейм с интервалом interval
+        df = (df.groupby(level='sensor_id')
+              .resample(f'{interval}min', level='timestamp')
+              # .mean())
+              .aggregate(rms))
 
-    # меняем местами индексы
-    df = df.swaplevel()
+        # меняем местами индексы
+        df = df.swaplevel()
+
     print(f'time = {time.time() - start}')
 
     sensors = (
@@ -170,6 +174,17 @@ def list_sensor_readings(request):
         .filter(pk__in=work_centers)
         .in_bulk(field_name='pk')
     )
+
+    start = time.time()
+    d_json = df.to_json(
+        orient='index',
+        double_precision=0,
+        date_unit='s',
+    )
+    # parsed = loads(d_json)
+    # print(dumps(parsed, indent=4))
+    # print(f'{d_json=}')
+    print(f'time = {time.time() - start}')
 
     start = time.time()
     # если передано zero, не включаем нулевые данные в ответ
@@ -200,3 +215,46 @@ def list_sensor_readings(request):
     print(f'time = {time.time() - start}')
 
     return JsonResponse(result, safe=False)
+
+
+class WorkingIntervalMachineViewSet(RetrieveModelMixin,
+                                    GenericViewSet):
+    permission_classes = [AllowAny]
+    serializer_class = WorkingIntervalMachineSerializer
+    # filterset_class = WorkingIntervalMachineFilter
+    # pagination_class = LimitOffsetPagination
+    # lookup_url_kwarg = 'interval_pk'
+    # queryset = Sensor.objects.all()
+    lookup_field = 'slug'
+    lookup_url_kwarg = 'sensor_slug'
+
+    def get_queryset(self, *args, **kwargs):
+        from_datetime = datetime.strptime(
+            self.request.query_params.get('from_datetime'),
+            '%Y-%m-%dT%H:%M'
+        ).replace(tzinfo=timezone.get_current_timezone())
+        to_datetime = datetime.strptime(
+            self.request.query_params.get('to_datetime'),
+            '%Y-%m-%dT%H:%M'
+        ).replace(tzinfo=timezone.get_current_timezone())
+    #     sensor = get_object_or_404(Sensor.objects.all(),
+    #                                slug=self.kwargs['sensor_slug'])
+    #     return sensor.working_intervals.filter(sensor=sensor,
+    #                                            finished_at__gt=from_datetime,
+    #                                            started_at__lt=to_datetime)
+    #     # return sensor.working_intervals.filter(
+    #     #     # sensor=sensor,
+    #     #     finished_at__gt=from_datetime,
+    #     #     started_at__lt=to_datetime)
+    #     return sensor
+        queryset = Sensor.objects.prefetch_related(
+            Prefetch(
+                'working_intervals',
+                queryset=WorkingInterval.objects.filter(
+                    finished_at__gt=from_datetime,
+                    started_at__lt=to_datetime
+                ),
+                to_attr='filtered_intervals'
+            )
+        )
+        return queryset

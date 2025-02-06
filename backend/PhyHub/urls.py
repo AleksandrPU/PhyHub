@@ -6,5 +6,5 @@ urlpatterns = [
     path('api/v1/', include('api.urls')),
     # path('api-auth/', include('rest_framework.urls')),
     path('sensors/', include('sensors.urls', namespace='sensors')),
-
+    path('api/v2/', include('api.urls_v2')),
 ]

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
@@ -100,3 +102,60 @@ class SensorSerializer(serializers.ModelSerializer):
     class Meta:
         model = Sensor
         fields = '__all__'
+
+
+# class WorkingIntervalFilteredSerializer(serializers.ListSerializer):
+#
+#     def to_representation(self, data):
+#         request = self.context.get('request')
+#         from_datetime = datetime.strptime(
+#             request.query_params.get('from_datetime'),
+#             '%Y-%m-%dT%H:%M'
+#         ).replace(tzinfo=timezone.get_current_timezone())
+#         to_datetime = datetime.strptime(
+#             request.query_params.get('to_datetime'),
+#             '%Y-%m-%dT%H:%M'
+#         ).replace(tzinfo=timezone.get_current_timezone())
+#
+#         data = data.filter(finished_at__gte=from_datetime,
+#                            started_at__lte=to_datetime)
+#         return super(WorkingIntervalFilteredSerializer, self).to_representation(data)
+
+
+class WorkingIntervalSerializer(serializers.ModelSerializer):
+
+    start = serializers.DateTimeField(
+        format='%Y-%m-%dT%H:%M', source='started_at')
+    end = serializers.DateTimeField(
+        format='%Y-%m-%dT%H:%M', source='finished_at')
+    status = serializers.SlugRelatedField(
+        read_only=True, slug_field='status_type')
+    duration = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WorkingInterval
+        fields = ['start',
+                  'end',
+                  'status',
+                  'duration']
+        read_only_fields = fields
+        # list_serializer_class = WorkingIntervalFilteredSerializer
+
+    def get_duration(self, obj):
+        # Длительность в минутах
+        return (
+            datetime(
+                year=obj.finished_at.year, month=obj.finished_at.month, day=obj.finished_at.day, hour=obj.finished_at.hour, minute=obj.finished_at.minute)
+            - datetime(
+                year=obj.started_at.year, month=obj.started_at.month, day=obj.started_at.day, hour=obj.started_at.hour, minute=obj.started_at.minute)
+            ).total_seconds() / 60
+
+
+class WorkingIntervalMachineSerializer(serializers.Serializer):
+
+    sensor_slug = serializers.CharField(read_only=True, source='slug')
+    intervals = WorkingIntervalSerializer(many=True, read_only=True, source='filtered_intervals')
+
+    class Meta:
+        model = Sensor
+        fields = ['sensor_slug', 'intervals']

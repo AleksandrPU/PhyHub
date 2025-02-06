@@ -26,3 +26,12 @@ class WorkingIntervalFilter(FilterSet):
     class Meta:
         model = WorkingInterval
         fields = ['need_comment', 'commented', 'from_datetime', 'to_datetime']
+
+
+class WorkingIntervalMachineFilter(FilterSet):
+    from_datetime = filters.DateTimeFilter('started_at', lookup_expr='gte')
+    to_datetime = filters.DateTimeFilter('finished_at', lookup_expr='lte')
+
+    class Meta:
+        model = WorkingInterval
+        fields = ['from_datetime', 'to_datetime']

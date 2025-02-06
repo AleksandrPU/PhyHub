@@ -21,6 +21,12 @@ class Sensor(models.Model):
     description = models.CharField('Описание',
                                    max_length=100,
                                    blank=True)
+    default_status = models.ForeignKey('SensorStatus',
+                                       on_delete=models.SET_NULL,
+                                       blank=True,
+                                       null=True,
+                                       verbose_name='Статус по умолчанию',
+                                       related_name='+')
 
     class Meta:
         verbose_name = 'Сенсор'
@@ -68,6 +74,12 @@ class SensorStatus(models.Model):
     """
     Статус (состояние) сенсора.
     """
+    class SensorStatuses(models.TextChoices):
+        WORK = 'WORK', 'Работа'
+        PAUSE = 'PAUSE', 'Тех. пауза'
+        STOP = 'STOP', 'Остановка'
+        OFFLINE = 'OFFLINE', 'Отключен'
+
     name = models.CharField('Название',
                             max_length=50)
     value_from = models.FloatField('Значение с')
@@ -87,6 +99,9 @@ class SensorStatus(models.Model):
                                verbose_name='Сенсор')
 
     object = SensorStatusQueryset.as_manager()
+    status_type = models.CharField('Тип статуса',
+                                   max_length=15,
+                                   choices=SensorStatuses.choices)
 
     class Meta:
         verbose_name = 'Состояние сенсора'
@@ -146,7 +161,8 @@ class WorkingIntervalQueryset(models.QuerySet):
         if interval is None:
             return self.create(sensor=sensor,
                                started_at=on_date,
-                               last_reading_value=value)
+                               last_reading_value=value,
+                               status=sensor.default_status)
 
         # определяем предшествующий и текущий статус
         duration = on_date - interval.started_at
