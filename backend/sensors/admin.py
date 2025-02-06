@@ -24,9 +24,11 @@ class SensorStatusAdmin(admin.ModelAdmin):
                     'duration_from',
                     'duration_to',
                     'color',
-                    'need_comment')
+                    'need_comment',
+                    'status_type')
     search_fields = ('name',)
-    list_filter = ('sensor',)
+    list_filter = ('sensor',
+                   'status_type')
     fields = ('sensor',
               'name',
               'value_from',
@@ -34,7 +36,8 @@ class SensorStatusAdmin(admin.ModelAdmin):
               'duration_from',
               'duration_to',
               'color',
-              'need_comment')
+              'need_comment',
+              'status_type')
     save_as = True
 
 

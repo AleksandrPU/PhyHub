@@ -1,4 +1,4 @@
-from datetime import datetime
+from typing import Callable
 
 from django.utils import timezone
 from rest_framework import serializers
@@ -104,30 +104,14 @@ class SensorSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
-# class WorkingIntervalFilteredSerializer(serializers.ListSerializer):
-#
-#     def to_representation(self, data):
-#         request = self.context.get('request')
-#         from_datetime = datetime.strptime(
-#             request.query_params.get('from_datetime'),
-#             '%Y-%m-%dT%H:%M'
-#         ).replace(tzinfo=timezone.get_current_timezone())
-#         to_datetime = datetime.strptime(
-#             request.query_params.get('to_datetime'),
-#             '%Y-%m-%dT%H:%M'
-#         ).replace(tzinfo=timezone.get_current_timezone())
-#
-#         data = data.filter(finished_at__gte=from_datetime,
-#                            started_at__lte=to_datetime)
-#         return super(WorkingIntervalFilteredSerializer, self).to_representation(data)
-
-
 class WorkingIntervalSerializer(serializers.ModelSerializer):
 
-    start = serializers.DateTimeField(
-        format='%Y-%m-%dT%H:%M', source='started_at')
-    end = serializers.DateTimeField(
-        format='%Y-%m-%dT%H:%M', source='finished_at')
+    # start = serializers.DateTimeField(
+    #     format='%Y-%m-%dT%H:%M', source='started_at')
+    # end = serializers.DateTimeField(
+    #     format='%Y-%m-%dT%H:%M', source='finished_at')
+    start = serializers.SerializerMethodField()
+    end = serializers.SerializerMethodField()
     status = serializers.SlugRelatedField(
         read_only=True, slug_field='status_type')
     duration = serializers.SerializerMethodField()
@@ -139,22 +123,55 @@ class WorkingIntervalSerializer(serializers.ModelSerializer):
                   'status',
                   'duration']
         read_only_fields = fields
-        # list_serializer_class = WorkingIntervalFilteredSerializer
+
+    @staticmethod
+    def datetime_from_interval(
+            obj_datetime: WorkingInterval,
+            query_datetime: str,
+            func: Callable,
+            is_string: bool = True
+    ) -> timezone.datetime | str:
+        result = func(timezone.datetime(obj_datetime.year,
+                                        obj_datetime.month,
+                                        obj_datetime.day,
+                                        obj_datetime.hour,
+                                        obj_datetime.minute),
+                      timezone.datetime.strptime(query_datetime,
+                                                 '%Y-%m-%dT%H:%M'))
+        if is_string:
+            return result.strftime('%Y-%m-%dT%H:%M')
+        return result
+
+    def get_start(self, obj, is_string=True):
+        return self.datetime_from_interval(
+            obj.started_at,
+            self.context['request'].query_params.get('from_datetime'),
+            max,
+            is_string
+        )
+
+    def get_end(self, obj, is_string=True):
+        return self.datetime_from_interval(
+            obj.finished_at,
+            self.context['request'].query_params.get('to_datetime'),
+            min,
+            is_string
+        )
 
     def get_duration(self, obj):
         # Длительность в минутах
-        return (
-            datetime(
-                year=obj.finished_at.year, month=obj.finished_at.month, day=obj.finished_at.day, hour=obj.finished_at.hour, minute=obj.finished_at.minute)
-            - datetime(
-                year=obj.started_at.year, month=obj.started_at.month, day=obj.started_at.day, hour=obj.started_at.hour, minute=obj.started_at.minute)
-            ).total_seconds() / 60
+        return int(
+            (
+                self.get_end(obj, is_string=False)
+                - self.get_start(obj, is_string=False)
+            ).total_seconds() / 60)
 
 
 class WorkingIntervalMachineSerializer(serializers.Serializer):
 
     sensor_slug = serializers.CharField(read_only=True, source='slug')
-    intervals = WorkingIntervalSerializer(many=True, read_only=True, source='filtered_intervals')
+    intervals = WorkingIntervalSerializer(
+        many=True, read_only=True, source='filtered_intervals')
 
     class Meta:
         model = Sensor
