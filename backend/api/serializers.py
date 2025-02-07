@@ -4,7 +4,8 @@ from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
-from sensors.models import Sensor, SensorReading, StatusReason, WorkingInterval
+from sensors.models import (Sensor, SensorReading, StatusReason, SensorStatus,
+                            WorkingInterval)
 
 
 class SensorReadingSerializer(serializers.ModelSerializer):
@@ -99,9 +100,26 @@ class WorkingIntervalCommentSerializer(serializers.ModelSerializer):
 
 class SensorSerializer(serializers.ModelSerializer):
 
+    status = serializers.SerializerMethodField()
+
     class Meta:
         model = Sensor
-        fields = '__all__'
+        fields = ['id',
+                  'name',
+                  'slug',
+                  'description',
+                  'status']
+        read_only_fields = fields
+
+    def get_status(self, obj):
+        last_reading = obj.readings.latest('measured_at')
+        last_interval = obj.working_intervals.latest('started_at')
+        if last_reading.measured_at > last_interval.started_at:
+            if last_reading.value > 0:
+                return SensorStatus.SensorStatuses.WORK.value
+            else:
+                return last_interval.status.status_type
+        return 'N/A'
 
 
 class WorkingIntervalSerializer(serializers.ModelSerializer):
@@ -126,18 +144,25 @@ class WorkingIntervalSerializer(serializers.ModelSerializer):
 
     @staticmethod
     def datetime_from_interval(
-            obj_datetime: WorkingInterval,
+            obj_datetime: timezone.datetime,
             query_datetime: str,
             func: Callable,
             is_string: bool = True
     ) -> timezone.datetime | str:
-        result = func(timezone.datetime(obj_datetime.year,
-                                        obj_datetime.month,
-                                        obj_datetime.day,
-                                        obj_datetime.hour,
-                                        obj_datetime.minute),
-                      timezone.datetime.strptime(query_datetime,
-                                                 '%Y-%m-%dT%H:%M'))
+        result = func(
+            timezone.datetime(
+                obj_datetime.year,
+                obj_datetime.month,
+                obj_datetime.day,
+                obj_datetime.hour,
+                obj_datetime.minute,
+                tzinfo=obj_datetime.tzinfo
+            ).astimezone(tz=timezone.get_current_timezone()),
+            timezone.datetime.strptime(
+                query_datetime,
+                '%Y-%m-%dT%H:%M'
+            ).replace(tzinfo=timezone.get_current_timezone())
+        )
         if is_string:
             return result.strftime('%Y-%m-%dT%H:%M')
         return result
