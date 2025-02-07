@@ -4,7 +4,7 @@ from .views import (
     SensorViewSet, list_sensor_readings, WorkingIntervalMachineViewSet)
 
 urlpatterns = [
-    path('sensors/<str:sensor_slug>/intervals/',
+    path('sensors/intervals/',
          WorkingIntervalMachineViewSet.as_view({'get': 'list'}),
          name='working_interval_by_machine_list'),
 
