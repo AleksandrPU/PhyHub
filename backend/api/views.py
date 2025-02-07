@@ -53,6 +53,11 @@ class SensorViewSet(ListModelMixin, GenericViewSet):
     queryset = Sensor.objects.all()
     serializer_class = SensorSerializer
 
+    def get_queryset(self):
+        if self.request.query_params.get('is_enabled'):
+            return self.queryset.filter(is_enabled=True)
+        return self.queryset
+
 
 def rms(x):
     """Вычисление среднего квадратичного значения."""
@@ -222,21 +227,40 @@ class WorkingIntervalMachineViewSet(ListModelMixin,
     serializer_class = WorkingIntervalMachineSerializer
     # filterset_class = WorkingIntervalMachineFilter
     # pagination_class = LimitOffsetPagination
-    lookup_field = 'slug'
-    lookup_url_kwarg = 'sensor_slug'
+    # lookup_field = 'slug'
+    # lookup_url_kwarg = 'sensor_slug'
 
     def get_queryset(self, *args, **kwargs):
-        from_datetime = datetime.strptime(
-            self.request.query_params.get('from_datetime'),
-            '%Y-%m-%dT%H:%M'
-        ).replace(tzinfo=timezone.get_current_timezone())
-        to_datetime = datetime.strptime(
-            self.request.query_params.get('to_datetime'),
-            '%Y-%m-%dT%H:%M'
-        ).replace(tzinfo=timezone.get_current_timezone())
         work_centers = self.request.query_params.get('work_center')
         if not work_centers:
             raise ValidationError({'work_center': 'Не заданы рабочие центры'})
+
+        # если не задана дата окончания периода, берем текущую дату
+        to_datetime = self.request.query_params.get(
+            'to_datetime', now()) or now()
+        if isinstance(to_datetime, str):
+            to_datetime = datetime.strptime(
+                to_datetime,
+                '%Y-%m-%dT%H:%M',
+            ).replace(tzinfo=timezone.get_current_timezone())
+
+        # если не задана дата начала периода,
+        # берем предыдущие сутки от to_datetime
+        from_datetime = self.request.query_params.get(
+            'from_datetime',
+            to_datetime - timedelta(days=1)
+        ) or (to_datetime - timedelta(days=1))
+        if isinstance(from_datetime, str):
+            from_datetime = datetime.strptime(
+                from_datetime,
+                '%Y-%m-%dT%H:%M'
+            ).replace(tzinfo=timezone.get_current_timezone())
+
+        if to_datetime < from_datetime:
+            raise ValidationError(
+                {'to_datetime': 'Дата окончания периода меньше даты начала '
+                                'периода'})
+
         work_centers = [int(i) for i in work_centers.split(',')]
         queryset = Sensor.objects.filter(pk__in=work_centers).prefetch_related(
             Prefetch(
