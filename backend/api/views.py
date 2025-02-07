@@ -216,7 +216,7 @@ def list_sensor_readings(request):
     return JsonResponse(result, safe=False)
 
 
-class WorkingIntervalMachineViewSet(RetrieveModelMixin,
+class WorkingIntervalMachineViewSet(ListModelMixin,
                                     GenericViewSet):
     permission_classes = [AllowAny]
     serializer_class = WorkingIntervalMachineSerializer
@@ -226,8 +226,6 @@ class WorkingIntervalMachineViewSet(RetrieveModelMixin,
     lookup_url_kwarg = 'sensor_slug'
 
     def get_queryset(self, *args, **kwargs):
-        print(self.request.query_params)
-        1/0
         from_datetime = datetime.strptime(
             self.request.query_params.get('from_datetime'),
             '%Y-%m-%dT%H:%M'
