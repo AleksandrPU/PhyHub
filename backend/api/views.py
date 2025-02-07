@@ -180,26 +180,53 @@ def list_sensor_readings(request):
     )
 
     start = time.time()
-    # d_json = df.to_json(
-    #     orient='index',
-    #     double_precision=0,
-    #     date_unit='s',
-    # )
-    # parsed = loads(d_json)
-    # print(dumps(parsed, indent=4))
-    # print(f'{d_json=}')
-    print(f'time = {time.time() - start}')
+    d4 = df.to_dict(orient='split', index=True)
+    d41 = zip(d4['index'], d4['data'])
+    final = []
+    values = []
+    prev_timestamp = None
+    for ((timestamp, sensor_id), [value]) in d41:
+        # print(timestamp, sensor_id, value)
+        if prev_timestamp is None:
+            values.append({
+                # 'sensor_id': sensor_id,
+                'sensor_slug': sensors[sensor_id].slug,
+                'sensor_name': sensors[sensor_id].name,
+                'value': round(value)
+                # 'value': value
+            })
+            prev_timestamp = timestamp
+        elif timestamp == prev_timestamp:
+            values.append({
+                # 'sensor_id': sensor_id,
+                'sensor_slug': sensors[sensor_id].slug,
+                'sensor_name': sensors[sensor_id].name,
+                'value': round(value)
+                # 'value': value
+            })
+        else:
+            final.append({'date': prev_timestamp, 'values': values})
+            values = [{
+                # 'sensor_id': sensor_id,
+                'sensor_slug': sensors[sensor_id].slug,
+                'sensor_name': sensors[sensor_id].name,
+                'value': round(value)
+                # 'value': value
+            }]
+            prev_timestamp = timestamp
+    if values:
+        final.append({'date': prev_timestamp, 'values': values})
+    print(f'split time = {time.time() - start}')
+    return JsonResponse(final, safe=False)
 
     start = time.time()
     # если передано zero, не включаем нулевые данные в ответ
     result = []
     timestamps = df.index.levels[0]
     for timestamp in timestamps:
-        sensor_data = df.loc[timestamp]
-
-        valid_values = sensor_data['avg_value'].round()
-        if not (zero or not valid_values.empty):
-            continue
+        valid_values = df.loc[timestamp]['avg_value'].round()
+        # if not (zero or not valid_values.empty):
+        #     continue
 
         values = [
             {
@@ -208,13 +235,13 @@ def list_sensor_readings(request):
                 'value': value
             }
             for sensor_id, value in valid_values.items()
-            if zero or value
+            # if zero or value
         ]
 
-        if values:
-            result.append(
-                # {'date': int(timestamp.timestamp()), 'values': values})
-                {'date': timestamp, 'values': values})
+        # if values:
+        result.append(
+            # {'date': int(timestamp.timestamp()), 'values': values})
+            {'date': timestamp, 'values': values})
 
     print(f'time = {time.time() - start}')
 
