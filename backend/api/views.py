@@ -8,7 +8,7 @@ from django.db.models.functions import Trunc
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.timezone import now
-from rest_framework.exceptions import status
+from rest_framework.exceptions import ValidationError, status
 
 from rest_framework.generics import CreateAPIView, get_object_or_404
 from rest_framework.mixins import (ListModelMixin, RetrieveModelMixin,
@@ -234,7 +234,11 @@ class WorkingIntervalMachineViewSet(ListModelMixin,
             self.request.query_params.get('to_datetime'),
             '%Y-%m-%dT%H:%M'
         ).replace(tzinfo=timezone.get_current_timezone())
-        queryset = Sensor.objects.prefetch_related(
+        work_centers = self.request.query_params.get('work_center')
+        if not work_centers:
+            raise ValidationError({'work_center': 'Не заданы рабочие центры'})
+        work_centers = [int(i) for i in work_centers.split(',')]
+        queryset = Sensor.objects.filter(pk__in=work_centers).prefetch_related(
             Prefetch(
                 'working_intervals',
                 queryset=WorkingInterval.objects.filter(
