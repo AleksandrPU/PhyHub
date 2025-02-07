@@ -164,7 +164,7 @@ class WorkingIntervalSerializer(serializers.ModelSerializer):
             ).replace(tzinfo=timezone.get_current_timezone())
         )
         if is_string:
-            return result.strftime('%Y-%m-%dT%H:%M')
+            return result.strftime('%Y-%m-%dT%H:%M:00%:z')
         return result
 
     def get_start(self, obj, is_string=True):
