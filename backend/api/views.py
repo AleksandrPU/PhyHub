@@ -3,7 +3,7 @@ from datetime import timedelta, datetime
 
 import numpy as np
 import pandas as pd
-from django.db.models import Avg, DateTimeField, Prefetch
+from django.db.models import Avg, Prefetch
 from django.db.models.functions import Trunc
 from django.http import JsonResponse
 from django.utils import timezone
@@ -61,7 +61,17 @@ class SensorViewSet(ListModelMixin, GenericViewSet):
 
 def rms(x):
     """Вычисление среднего квадратичного значения."""
-    return np.sqrt(np.mean(np.square(x)))
+    return int(np.sqrt(np.mean(np.square(x))))
+
+
+def parse_datetime(str_datetime: str, default: datetime = None) -> datetime:
+    """Преобразование строки в datetime."""
+    if isinstance(str_datetime, str):
+        return datetime.strptime(
+            str_datetime,
+            '%Y-%m-%dT%H:%M'
+        ).replace(tzinfo=timezone.get_current_timezone())
+    return default
 
 
 def list_sensor_readings(request):
@@ -85,28 +95,17 @@ def list_sensor_readings(request):
             {'work_center': 'Не заданы рабочие центры'},
             status=status.HTTP_400_BAD_REQUEST)
 
-    work_centers = [int(i) for i in request.GET.get('work_center').split(',')]
+    work_centers = [int(i) for i in work_centers.split(',')]
 
     # интервал усреднения по умолчанию 60 минут
     interval = int(request.GET.get('interval', 60) or 60)
 
     # если не задана дата окончания периода, берем текущую дату
-    to_datetime = request.GET.get('to_datetime', now()) or now()
-    if isinstance(to_datetime, str):
-        to_datetime = datetime.strptime(
-            to_datetime,
-            '%Y-%m-%dT%H:%M'
-        ).replace(tzinfo=timezone.get_current_timezone())
+    to_datetime = parse_datetime(request.GET.get('to_datetime'), now())
 
     # если не задана дата начала периода, берем предыдущие сутки от to_datetime
-    from_datetime = request.GET.get(
-        'from_datetime',
-        to_datetime - timedelta(days=1)) or (to_datetime - timedelta(days=1))
-    if isinstance(from_datetime, str):
-        from_datetime = datetime.strptime(
-            from_datetime,
-            '%Y-%m-%dT%H:%M'
-        ).replace(tzinfo=timezone.get_current_timezone())
+    from_datetime = parse_datetime(
+        request.GET.get('from_datetime'), to_datetime - timedelta(days=1))
 
     if to_datetime < from_datetime:
         return JsonResponse(
@@ -119,7 +118,7 @@ def list_sensor_readings(request):
                             status=status.HTTP_400_BAD_REQUEST)
 
     # если передано убираем нулевые значения
-    zero = not bool(request.GET.get('zero'))
+    # zero = not bool(request.GET.get('zero'))
 
     # данные по датчикам, усредненные за 1 минуту
     queryset = (
@@ -130,13 +129,10 @@ def list_sensor_readings(request):
         )
         .annotate(
             timestamp=Trunc(
-                'measured_at', 'minute', output_field=DateTimeField()), )
+                'measured_at', 'minute'))
         .order_by('timestamp')
-        .values('timestamp')
-        .annotate(
-            avg_value=Avg('value'),
-        )
-        .values('sensor_id', 'timestamp', 'avg_value')
+        .values('sensor_id', 'timestamp')
+        .annotate(avg_value=Avg('value'))
     )
 
     if not queryset:
@@ -162,14 +158,13 @@ def list_sensor_readings(request):
     df = df.reindex(date_range, fill_value=0)
 
     if interval != 1:
-        # усредняем датафрейм с интервалом interval
+        # усредняем датафрейм с интервалом interval и
+        # меняем местами индексы
         df = (df.groupby(level='sensor_id')
               .resample(f'{interval}min', level='timestamp')
               # .mean())
-              .aggregate(rms))
-
-        # меняем местами индексы
-        df = df.swaplevel()
+              .aggregate(rms)
+              .swaplevel())
 
     print(f'time = {time.time() - start}')
 
@@ -180,72 +175,27 @@ def list_sensor_readings(request):
     )
 
     start = time.time()
-    d4 = df.to_dict(orient='split', index=True)
-    d41 = zip(d4['index'], d4['data'])
+    avg_values = df.to_dict(orient='split', index=True)
     final = []
     values = []
     prev_timestamp = None
-    for ((timestamp, sensor_id), [value]) in d41:
-        # print(timestamp, sensor_id, value)
+    for ((timestamp, sensor_id), [value]) in (
+            zip(avg_values['index'], avg_values['data'])):
         if prev_timestamp is None:
-            values.append({
-                # 'sensor_id': sensor_id,
-                'sensor_slug': sensors[sensor_id].slug,
-                'sensor_name': sensors[sensor_id].name,
-                'value': round(value)
-                # 'value': value
-            })
             prev_timestamp = timestamp
-        elif timestamp == prev_timestamp:
-            values.append({
-                # 'sensor_id': sensor_id,
-                'sensor_slug': sensors[sensor_id].slug,
-                'sensor_name': sensors[sensor_id].name,
-                'value': round(value)
-                # 'value': value
-            })
-        else:
+        elif timestamp != prev_timestamp:
             final.append({'date': prev_timestamp, 'values': values})
-            values = [{
-                # 'sensor_id': sensor_id,
-                'sensor_slug': sensors[sensor_id].slug,
-                'sensor_name': sensors[sensor_id].name,
-                'value': round(value)
-                # 'value': value
-            }]
+            values = []
             prev_timestamp = timestamp
+        values.append({
+            'sensor_slug': sensors[sensor_id].slug,
+            'sensor_name': sensors[sensor_id].name,
+            'value': value
+        })
     if values:
         final.append({'date': prev_timestamp, 'values': values})
     print(f'split time = {time.time() - start}')
     return JsonResponse(final, safe=False)
-
-    start = time.time()
-    # если передано zero, не включаем нулевые данные в ответ
-    result = []
-    timestamps = df.index.levels[0]
-    for timestamp in timestamps:
-        valid_values = df.loc[timestamp]['avg_value'].round()
-        # if not (zero or not valid_values.empty):
-        #     continue
-
-        values = [
-            {
-                'sensor_slug': sensors[sensor_id].slug,
-                'sensor_name': sensors[sensor_id].name,
-                'value': value
-            }
-            for sensor_id, value in valid_values.items()
-            # if zero or value
-        ]
-
-        # if values:
-        result.append(
-            # {'date': int(timestamp.timestamp()), 'values': values})
-            {'date': timestamp, 'values': values})
-
-    print(f'time = {time.time() - start}')
-
-    return JsonResponse(result, safe=False)
 
 
 class WorkingIntervalMachineViewSet(ListModelMixin,
