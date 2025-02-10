@@ -3,7 +3,7 @@ from datetime import timedelta, datetime
 
 import numpy as np
 import pandas as pd
-from django.db.models import Avg, Prefetch
+from django.db.models import Avg, F, Prefetch, Q
 from django.db.models.functions import Trunc
 from django.http import JsonResponse
 from django.utils import timezone
@@ -213,25 +213,15 @@ class WorkingIntervalMachineViewSet(ListModelMixin,
             raise ValidationError({'work_center': 'Не заданы рабочие центры'})
 
         # если не задана дата окончания периода, берем текущую дату
-        to_datetime = self.request.query_params.get(
-            'to_datetime', now()) or now()
-        if isinstance(to_datetime, str):
-            to_datetime = datetime.strptime(
-                to_datetime,
-                '%Y-%m-%dT%H:%M',
-            ).replace(tzinfo=timezone.get_current_timezone())
+        to_datetime = parse_datetime(
+            self.request.query_params.get('to_datetime'),
+            now())
 
         # если не задана дата начала периода,
         # берем предыдущие сутки от to_datetime
-        from_datetime = self.request.query_params.get(
-            'from_datetime',
-            to_datetime - timedelta(days=1)
-        ) or (to_datetime - timedelta(days=1))
-        if isinstance(from_datetime, str):
-            from_datetime = datetime.strptime(
-                from_datetime,
-                '%Y-%m-%dT%H:%M'
-            ).replace(tzinfo=timezone.get_current_timezone())
+        from_datetime = parse_datetime(
+            self.request.query_params.get('from_datetime'),
+            to_datetime - timedelta(days=1))
 
         if to_datetime < from_datetime:
             raise ValidationError(
@@ -243,8 +233,11 @@ class WorkingIntervalMachineViewSet(ListModelMixin,
             Prefetch(
                 'working_intervals',
                 queryset=WorkingInterval.objects.filter(
+                    ~Q(
+                        started_at__gt=F('finished_at') - timedelta(minutes=1),
+                    ),
                     finished_at__gt=from_datetime,
-                    started_at__lt=to_datetime
+                    started_at__lt=to_datetime,
                 ).select_related('status'),
                 to_attr='filtered_intervals'
             ),
