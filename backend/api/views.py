@@ -233,6 +233,7 @@ class WorkingIntervalMachineViewSet(ListModelMixin,
             Prefetch(
                 'working_intervals',
                 queryset=WorkingInterval.objects.filter(
+                    # Отфильтровываем интервалы с длительностью меньше минуты
                     ~Q(
                         started_at__gt=F('finished_at') - timedelta(minutes=1),
                     ),
