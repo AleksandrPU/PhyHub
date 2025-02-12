@@ -149,20 +149,26 @@ class WorkingIntervalSerializer(serializers.ModelSerializer):
             func: Callable,
             is_string: bool = True
     ) -> timezone.datetime | str:
-        result = func(
-            timezone.datetime(
-                obj_datetime.year,
-                obj_datetime.month,
-                obj_datetime.day,
-                obj_datetime.hour,
-                obj_datetime.minute,
-                tzinfo=obj_datetime.tzinfo
-            ).astimezone(tz=timezone.get_current_timezone()),
-            timezone.datetime.strptime(
+        if not obj_datetime:
+            result = timezone.datetime.strptime(
                 query_datetime,
                 '%Y-%m-%dT%H:%M'
             ).replace(tzinfo=timezone.get_current_timezone())
-        )
+        else:
+            result = func(
+                timezone.datetime(
+                    obj_datetime.year,
+                    obj_datetime.month,
+                    obj_datetime.day,
+                    obj_datetime.hour,
+                    obj_datetime.minute,
+                    tzinfo=obj_datetime.tzinfo
+                ).astimezone(tz=timezone.get_current_timezone()),
+                timezone.datetime.strptime(
+                    query_datetime,
+                    '%Y-%m-%dT%H:%M'
+                ).replace(tzinfo=timezone.get_current_timezone())
+            )
         if is_string:
             return result.strftime('%Y-%m-%dT%H:%M:00%z')
         return result
@@ -176,11 +182,14 @@ class WorkingIntervalSerializer(serializers.ModelSerializer):
         )
 
     def get_end(self, obj, is_string=True):
-        return self.datetime_from_interval(
-            obj.finished_at,
-            self.context['request'].query_params.get('to_datetime'),
-            min,
-            is_string
+        return min(
+            self.datetime_from_interval(
+                obj.finished_at,
+                self.context['request'].query_params.get('to_datetime'),
+                min,
+                False
+            ),
+            timezone.now()
         )
 
     def get_duration(self, obj):

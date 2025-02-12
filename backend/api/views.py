@@ -147,7 +147,11 @@ def list_sensor_readings(request):
         [
             pd.date_range(
                 start=from_datetime,
-                end=to_datetime - timedelta(minutes=1),
+                # end=to_datetime - timedelta(minutes=1),
+                end=min(
+                    to_datetime - timedelta(minutes=1),
+                    timezone.localtime()
+                ),
                 freq='min'),
             df.index.levels[1],
         ],
@@ -235,10 +239,16 @@ class WorkingIntervalMachineViewSet(ListModelMixin,
                 queryset=WorkingInterval.objects.filter(
                     # Отфильтровываем интервалы с длительностью меньше минуты
                     ~Q(
-                        started_at__gt=F('finished_at') - timedelta(minutes=1),
-                    ),
-                    finished_at__gt=from_datetime,
-                    started_at__lt=to_datetime,
+                        started_at__gt=F('finished_at') - timedelta(minutes=1)
+                    )
+                    | Q(finished_at__isnull=True),
+                    # finished_at__gt=from_datetime,
+                    # started_at__lt=to_datetime,
+                    Q(started_at__lte=to_datetime)
+                    & (
+                        Q(finished_at__gte=from_datetime)
+                        | Q(finished_at__isnull=True)
+                    )
                 ).select_related('status'),
                 to_attr='filtered_intervals'
             ),
