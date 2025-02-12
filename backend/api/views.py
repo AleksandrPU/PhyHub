@@ -125,7 +125,7 @@ def list_sensor_readings(request):
         SensorReading.objects.filter(
             sensor_id__in=work_centers,
             measured_at__gte=from_datetime,
-            measured_at__lt=to_datetime
+            measured_at__lte=to_datetime
         )
         .annotate(
             timestamp=Trunc(
@@ -149,7 +149,8 @@ def list_sensor_readings(request):
                 start=from_datetime,
                 # end=to_datetime - timedelta(minutes=1),
                 end=min(
-                    to_datetime - timedelta(minutes=1),
+                    # to_datetime - timedelta(minutes=1),
+                    to_datetime,
                     timezone.localtime()
                 ),
                 freq='min'),
