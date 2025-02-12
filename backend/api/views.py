@@ -61,7 +61,7 @@ class SensorViewSet(ListModelMixin, GenericViewSet):
 
 def rms(x):
     """Вычисление среднего квадратичного значения."""
-    return int(np.sqrt(np.mean(np.square(x))))
+    return np.sqrt(np.mean(np.square(x)))
 
 
 def parse_datetime(str_datetime: str, default: datetime = None) -> datetime:
@@ -190,7 +190,7 @@ def list_sensor_readings(request):
         values.append({
             'sensor_slug': sensors[sensor_id].slug,
             'sensor_name': sensors[sensor_id].name,
-            'value': value
+            'value': int(value)
         })
     if values:
         final.append({'date': prev_timestamp, 'values': values})
