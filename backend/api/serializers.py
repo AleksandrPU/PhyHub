@@ -41,14 +41,14 @@ class SensorReadingSerializer(serializers.ModelSerializer):
         source='measured_at',
         required=False,
     )
-    # status = serializers.ChoiceField(
-    #     choices=ReadingStatuses,
-    # )
+    status = serializers.ChoiceField(
+        choices=ReadingStatuses,
+    )
 
     class Meta:
         model = SensorReading
-        # fields = ['name', 'reading', 'reading_time', 'status']
-        fields = ['name', 'reading', 'reading_time']
+        fields = ['name', 'reading', 'reading_time', 'status']
+        # fields = ['name', 'reading', 'reading_time']
 
 
 class SensorReadingListSerializer(serializers.ListSerializer):
@@ -68,18 +68,27 @@ class SensorReadingListSerializer(serializers.ListSerializer):
 
         readings = []
         errors = []
+        logger.error(f'{validated_data=}')
         for reading_data in validated_data:
             # slug = reading_data['sensor']
             # sensor: Sensor = sensors.get(slug)
             # if sensor is None:
             #     errors.append(f'Не найден сенсор {slug}')
             # elif sensor.is_enabled:
+            if reading_data['status'] == SensorReadingSerializer.ReadingStatuses.NOT_FOUND:
+                sensor_name = reading_data['sensor'].name
+                logger.error(f'Рабочий центр {sensor_name} не найден: '
+                             f'{reading_data}')
+                continue
             interval = WorkingInterval.objects.check_interval(
                 sensor=reading_data['sensor'],
                 value=reading_data['value'],
                 # on_date=measured_at
                 on_date=reading_data['measured_at']
             )
+            if reading_data['value'] is None:
+                continue
+            reading_data.pop('status')
             reading_data['sensor'] = reading_data['sensor']
             reading_data['measured_at'] = reading_data['measured_at']
             reading_data['working_interval'] = interval

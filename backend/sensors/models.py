@@ -70,6 +70,8 @@ class SensorStatusQueryset(models.QuerySet):
         Фильтрует queryset по kwargs, возвращает объект,
         соответствующий параметрам value и duration.
         """
+        if value is None:
+            return self.get(status_type=SensorStatus.SensorStatuses.OFFLINE)
         return (self
                 .filter(**kwargs)
                 .filter(value_from__lte=value,
@@ -78,7 +80,8 @@ class SensorStatusQueryset(models.QuerySet):
                          | Q(duration_to__isnull=True)),
                         duration_from__lte=duration)
                 .order_by('-value_to')
-                .first())
+                .first()
+                or self.get(status_type=SensorStatus.SensorStatuses.UNKNOWN))
 
 
 class SensorStatus(models.Model):
@@ -90,6 +93,7 @@ class SensorStatus(models.Model):
         PAUSE = 'PAUSE', 'Тех. пауза'
         STOP = 'STOP', 'Остановка'
         OFFLINE = 'OFFLINE', 'Отключен'
+        UNKNOWN = 'UNKNOWN', 'Неизвестный'
 
     name = models.CharField('Название',
                             max_length=50)
@@ -163,78 +167,126 @@ class WorkingIntervalQueryset(models.QuerySet):
         :return: Рабочий интервал.
         """
         # получаем текущий интервал или создаем новый
+        logger.warning('=======================================')
         interval = (self
                     .filter(sensor=sensor,
                             finished_at__isnull=True)
                     .order_by('started_at')
                     .last())
-
-        if interval and on_date - interval.last_reading_date > timedelta(minutes=1):
-            prev_interval = interval.last_reading_date
-            duration = prev_interval - interval.started_at
-            interval.finished_at = prev_interval
-            status = sensor.statuses.get_status(
-                value=interval.last_reading_value,
-                duration=duration)
-            interval.status = status
-            interval.save()
-            logger.warning(f'{prev_interval=} {duration=} {status=}')
-
-            # logger.error(
-            #     'Create OFF '
-            #     f'{sensor.readings.latest('measured_at').measured_at} '
-            #     f'{on_date} '
-            #     f'{sensor.readings.latest('measured_at').measured_at - on_date}')
-            status = sensor.statuses.filter(status_type=SensorStatus.SensorStatuses.OFFLINE).first()
-            self.create(sensor=sensor,
-                        last_reading_value=0,
-                        started_at=prev_interval,
-                        finished_at=on_date,
-                        status=status)
-            interval = None
-
+        logger.warning(f'{interval=}')
         # если предыдущих интервалов нет, создаем новый
         if interval is None:
-            # status = sensor.statuses.get_status(value=value, duration=0)
+            logger.warning('START ---------------')
+            logger.warning('>>> interval is None')
+            if value is None:
+                status = sensor.statuses.get(status_type='OFFLINE')
+            elif value == 0:
+                status = sensor.statuses.get(status_type='PAUSE')
+            else:
+                status = sensor.statuses.get(status_type='WORK')
+            logger.warning(f'{sensor=} {on_date=} {value=} {status=}')
+            logger.warning('END ---------------')
             return self.create(sensor=sensor,
                                started_at=on_date,
-                               last_reading_value=value,
+                               # TODO убрать
+                               last_reading_value=value or 0,
                                last_reading_date=on_date,
-                               status=sensor.default_status)
+                               status=status)
 
         # определяем предшествующий и текущий статус
-        duration = on_date - interval.started_at
-        prev_status = (sensor
-                       .statuses
-                       .get_status(value=interval.last_reading_value,
-                                   duration=duration))
+        # duration = on_date - interval.started_at
+        # prev_status = (sensor
+        #                .statuses
+        #                .get_status(value=interval.last_reading_value,
+        #                            duration=duration))
+        prev_status = interval.status
         cur_status = (sensor
                       .statuses
                       .get_status(value=value,
-                                  duration=duration))
+                                  # duration=timedelta(0)))
+                                  duration=prev_status.duration_from))
+        logger.warning(f'{prev_status=} {cur_status=}')
+        if on_date - interval.last_reading_date > timedelta(seconds=30 * 2):
+            logger.warning('START ---------------')
+            logger.warning(f'>>> {on_date=} {interval.last_reading_date=} {timedelta(seconds=30 * 2)=}')
+            # TODO поправить совпадение статусов
+            last_date = interval.last_reading_date
+            interval.finished_at = last_date
+            interval.save()
+            logger.warning(f'finish {last_date=}')
+            self.create(sensor=sensor,
+                        started_at=last_date,
+                        finished_at=on_date,
+                        # TODO убрать
+                        last_reading_value=0,
+                        last_reading_date=on_date,
+                        status=sensor.statuses.get(status_type='OFFLINE'))
+            logger.warning(f'create/finish {sensor=} {last_date=} {on_date=} OFFLINE')
+            if value is None:
+                status = sensor.statuses.get(status_type='OFFLINE')
+            elif value == 0:
+                status = sensor.statuses.get(status_type='PAUSE')
+            else:
+                status = sensor.statuses.get(status_type='WORK')
+            logger.warning(f'create {sensor=} {on_date=} {value=} {status=}')
+            logger.warning('END ---------------')
+            return self.create(sensor=sensor,
+                               started_at=on_date,
+                               # TODO убрать
+                               last_reading_value=value or 0,
+                               last_reading_date=on_date,
+                               status=status)
 
-        # если статус не изменился
-        if (None in (prev_status, cur_status)
-                or prev_status.id == cur_status.id):
-            logger.warning(f'{prev_status=} {cur_status=}')
-            interval.last_reading_value = value
+        if prev_status == cur_status:
+            logger.warning('START ---------------')
+            duration = on_date - interval.started_at
+            cur_status = (sensor
+                          .statuses
+                          .get_status(value=value,
+                                      duration=duration))
+            logger.warning(f'== {duration=} {prev_status=} {cur_status=}')
+            if prev_status != cur_status:
+                interval.status = cur_status
+                logger.warning(f'change status {cur_status=}')
             interval.last_reading_date = on_date
             interval.save()
+            logger.warning('END ---------------')
             return interval
 
+        # logger.error(f'{prev_status=}')
+        # logger.error(f'{cur_status=}')
+        # # если статус не изменился
+        # # if (None in (prev_status, cur_status)
+        # #         or prev_status.id == cur_status.id):
+        # if prev_status.id == cur_status.id:
+        #     # interval.last_reading_value = value
+        #     interval.last_reading_date = on_date
+        #     interval.save()
+        #     return interval
+
         # если статус изменился, сохраняем интервал и создаем новый
-        logger.warning('Create new')
-        interval.last_reading_value = value
-        interval.last_reading_date = on_date
-        interval.status = prev_status
+        logger.warning(f'final finish {value=} {on_date=}')
+        # TODO убрать
+        interval.last_reading_value = value or 0
+        # interval.last_reading_date = on_date
+        # interval.status = prev_status
         interval.finished_at = on_date
         interval.save()
 
+        # if value is None:
+        #     status = sensor.statuses.get(status_type='OFFLINE')
+        # elif value == 0:
+        #     status = sensor.statuses.get(status_type='PAUSE')
+        # else:
+        #     status = sensor.statuses.get(status_type='WORK')
+        logger.warning(f'final Create new {sensor=} {value=} {on_date=} {cur_status=}')
+        logger.warning('=======================================')
         return self.create(sensor=sensor,
-                           last_reading_value=value,
+                           # TODO убрать
+                           last_reading_value=value or 0,
                            last_reading_date=on_date,
                            started_at=on_date,
-                           status=sensor.default_status)
+                           status=cur_status)
 
 
 class WorkingInterval(models.Model):

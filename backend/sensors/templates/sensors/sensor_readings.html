@@ -1,0 +1,163 @@
+{% extends 'base.html' %}
+{% load custom_tags %}
+{% block head %}
+    <script src="https://www.gstatic.com/charts/loader.js"></script>
+    <script type="text/javascript">
+        google.charts.load('current', {'packages': ['line', 'timeline', 'corechart']});
+        google.charts.setOnLoadCallback(drawChart);
+
+        function drawChart() {
+
+            let data = new google.visualization.DataTable();
+            data.addColumn('date', 'Time');
+            data.addColumn('number', 'Value');
+            data.addRows({{ chart_data }});
+
+            let tl_data = new google.visualization.DataTable();
+            tl_data.addColumn({type: 'string', id: 'Status'});
+            tl_data.addColumn({type: 'string', id: 'Name'});
+            tl_data.addColumn({type: 'string', id: 'style', role: 'style'});
+            tl_data.addColumn({type: 'date', id: 'Start'});
+            tl_data.addColumn({type: 'date', id: 'End'});
+
+            {% autoescape off %}
+                tl_data.addRows({{ timeline_data }});
+            {% endautoescape %}
+
+            let options = {
+                chart: {
+                    title: 'Скорость машины',
+                    subtitle: 'ед. в мин.',
+                    {#chartArea: {height: '70%', width: '90%'},#}
+                    hAxis: {format: 'd.MM.yy HH:mm'},
+                    legend: {position: 'none'},
+
+                },
+                timeline: {
+                    timeline: {
+                        showRowLabels: false,
+                        colorByRowLabel: true,
+                        showBarLabels: false,
+                        groupByRowLabel: true
+                    },
+                    alternatingRowStyle: false,
+                    hAxis: {format: 'HH:mm'},
+                }
+            }
+
+            let line_chart = new google.charts.Line(document.getElementById('sensor_linechart'));
+            {#let line_chart = new google.visualization.AreaChart(document.getElementById('sensor_linechart'));#}
+            let tlchart = new google.visualization.Timeline(document.getElementById('time_line'));
+
+            line_chart.draw(data, google.charts.Line.convertOptions(options.chart));
+            tlchart.draw(tl_data, options.timeline);
+        }
+    </script>
+{% endblock head %}
+{% block content %}
+    <!-- Row 1-->
+    <div class="row">
+        <!-- Col 1 -->
+        <div class="col-lg-9 d-flex align-items-strech">
+            <div class="card w-100">
+                <div class="card-body">
+                    <div class="d-sm-flex d-block align-items-center justify-content-between mb-9">
+                        <div class="mb-3 mb-sm-0">
+                            <h5 class="card-title fw-semibold">{{ sensor.name }}</h5>
+                        </div>
+                    </div>
+                    <div id="sensor_linechart" style="height: 300px"></div>
+                    <div id="time_line" style="margin-left: 3.5%; margin-right: 1%"></div>
+                </div>
+            </div>
+        </div>
+        <!-- Col 2 -->
+        <div class="col-lg-3">
+            <!-- Filter -->
+            <div class="row">
+                <div class="col-lg-12">
+                    <div class="card overflow-hidden">
+                        <div class="card-body p-4">
+                            <h5 class="card-title mb-9 fw-semibold">Фильтр</h5>
+                            <div class="row align-items-center">
+                                <form>
+                                    {% for filter_field in filter.form %}
+                                        <div class="mb-3">
+                                            <label for="{{ filter_field.id_for_label }}"
+                                                   class="form-label">{{ filter_field.label }}</label>
+                                            {{ filter_field|add_class:'form-control' }}
+                                            <div class="form-text">Дата и время начала графика.</div>
+                                        </div>
+                                    {% endfor %}
+                                    <button type="submit" class="btn btn-primary">Применить</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- End filter -->
+            <!-- Summary -->
+            <div class="row">
+                <div class="col-lg-12">
+                    <div class="card overflow-hidden">
+                        <div class="card-body p-4">
+                            <h5 class="card-title mb-9 fw-semibold">Сводка</h5>
+                            <div class="row align-items-center">
+                                <h5 class="mb-3">Рабочая скорость: {{ summary.avg_gt0|floatformat }} шт./мин.</h5>
+                                <h5 class="mb-3">Средняя скорость: {{ summary.avg|floatformat }} шт./мин.</h5>
+                                <h5 class="mb-3">Эффективное время: {{ summary.idle|floatformat }} %</h5>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- End Summary -->
+        </div>
+        <!-- End col 2 -->
+    </div>
+
+    <div class="row">
+        <div class="col-lg-9 d-flex align-items-stretch">
+            <div class="card w-100">
+                <div class="card-body p-4">
+                    <h5 class="card-title fw-semibold mb-4">Интервалы</h5>
+                    <div class="table-responsive">
+                        <table class="table text-nowrap mb-0 align-middle">
+                            <thead class="text-dark fs-4">
+                            <tr>
+                                <th class="border-bottom-0">
+                                    <h6 class="fw-semibold mb-0">С</h6>
+                                </th>
+                                <th class="border-bottom-0">
+                                    <h6 class="fw-semibold mb-0">По</h6>
+                                </th>
+                                <th class="border-bottom-0">
+                                    <h6 class="fw-semibold mb-0">Длительность</h6>
+                                </th>
+                                <th class="border-bottom-0">
+                                    <h6 class="fw-semibold mb-0">Статус</h6>
+                                </th>
+                                <th class="border-bottom-0">
+                                    <h6 class="fw-semibold mb-0">Комментарий</h6>
+                                </th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            {% for interval in working_intervals %}
+                                <tr>
+                                    <td class="border-bottom-0">{{ interval.started_at|date:'d.m.y H:i' }}</td>
+                                    <td class="border-bottom-0">{{ interval.finished_at|date:'d.m.y H:i' }}</td>
+                                    <td class="border-bottom-0">{{ interval.duration|duration }}</td>
+                                    <td class="border-bottom-0">{{ interval.status.name }}</td>
+                                    <td class="border-bottom-0">{{ interval.comment }}</td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock content %}

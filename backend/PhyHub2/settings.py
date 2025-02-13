@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'django_celery_beat',
 
+    'core.apps.CoreConfig',
     'sensors.apps.SensorsConfig',
     'users.apps.UsersConfig',
 ]
@@ -70,7 +71,7 @@ ROOT_URLCONF = 'PhyHub2.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [

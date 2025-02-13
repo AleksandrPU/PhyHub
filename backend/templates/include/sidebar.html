@@ -1,0 +1,30 @@
+{% load static %}
+<aside class="left-sidebar">
+    <!-- Sidebar scroll-->
+    <div>
+        <div class="brand-logo d-flex align-items-center justify-content-between">
+            <h6 class="fw-semibold fs-4 mb-6 text-dark w-85">PhyHub</h6>
+            <div class="close-btn d-xl-none d-block sidebartoggler cursor-pointer" id="sidebarCollapse">
+                <i class="ti ti-x fs-8"></i>
+            </div>
+        </div>
+        <!-- Sidebar navigation-->
+        <nav class="sidebar-nav scroll-sidebar" data-simplebar="">
+            <ul id="sidebarnav">
+                <li class="nav-small-cap">
+                    <span><i class="ti ti-layout-dashboard"></i></span>
+                    <span class="hide-menu">Датчики</span>
+                </li>
+                {% for sensor in sensors %}
+                    <li class="sidebar-item">
+                        <a class="sidebar-link" href="{% url 'sensors:readings' pk=sensor.pk %}" aria-expanded="false">
+                            <span class="hide-menu">{{ sensor.name }}</span>
+                        </a>
+                    </li>
+                {% endfor %}
+            </ul>
+        </nav>
+        <!-- End Sidebar navigation -->
+    </div>
+    <!-- End Sidebar scroll-->
+</aside>
