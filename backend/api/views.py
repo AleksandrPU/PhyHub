@@ -170,6 +170,7 @@ def list_sensor_readings(request):
               # .mean())
               .aggregate(rms)
               .swaplevel())
+    df = df.sort_values(by=['timestamp', 'sensor_id'])
 
     print(f'time = {time.time() - start}')
 
