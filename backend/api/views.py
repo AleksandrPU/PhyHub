@@ -93,7 +93,8 @@ def list_sensor_readings(request):
     if not work_centers:
         return JsonResponse(
             {'work_center': 'Не заданы рабочие центры'},
-            status=status.HTTP_400_BAD_REQUEST)
+            status=status.HTTP_400_BAD_REQUEST,
+            json_dumps_params={'ensure_ascii': False})
 
     work_centers = [int(i) for i in work_centers.split(',')]
 
@@ -111,11 +112,13 @@ def list_sensor_readings(request):
         return JsonResponse(
             {'to_datetime': 'Дата окончания периода меньше даты начала '
                             'периода'},
-            status=status.HTTP_400_BAD_REQUEST)
+            status=status.HTTP_400_BAD_REQUEST,
+            json_dumps_params={'ensure_ascii': False})
 
     if to_datetime - from_datetime < timedelta(minutes=interval):
         return JsonResponse({'interval': 'Интервал больше заданного периода'},
-                            status=status.HTTP_400_BAD_REQUEST)
+                            status=status.HTTP_400_BAD_REQUEST,
+                            json_dumps_params={'ensure_ascii': False})
 
     # если передано убираем нулевые значения
     # zero = not bool(request.GET.get('zero'))
@@ -201,7 +204,8 @@ def list_sensor_readings(request):
     if values:
         final.append({'date': prev_timestamp, 'values': values})
     print(f'split time = {time.time() - start}')
-    return JsonResponse(final, safe=False)
+    return JsonResponse(
+        final, safe=False, json_dumps_params={'ensure_ascii': False})
 
 
 class WorkingIntervalMachineViewSet(ListModelMixin,
